@@ -2,44 +2,65 @@
 #include <string.h>
 #include <sys/mman.h>
 
-#define MAX_SIZE (4*1024)
+#define HEAP_SZ ((u64)4*1024)
+#define BLOCK_H_SIZE sizeof(FreeBlock)
 #define FMAGIC ((u64)0x0DACDACDACDACDAC)
 #define AMAGIC ((u64)0x0DEFDEFDEFDEFDEF)
 
 typedef unsigned long long u64;
-typedef struct FreeBlock FreeBlock;
+typedef struct FreeBlock_t FreeBlock;
 
-
-struct FreeBlock {
-	FreeBlock* next;
+typedef struct FreeBlock_t{
 	u64 size;
 	u64 magic;
-};
-// 16 bytes of header 
-// Size is header plus data
-struct AllocNode {
-	u64 size;	
+	struct FreeBlock *next;
+}FreeBlock;
+
+typedef struct AllocBlock_t{
+	u64 size;
 	u64 magic;
-};
+}AllocBlock;
 
-struct FreeBlock FREEBLOCKS[MAX_SIZE];
+void* HEAD = NULL;
 
-void removeFreeBlock(FreeBlock *l, FreeBlock *target){
-	FreeBlock **P = &l->head;
-	while(*p != target){
-		p = &(*p)->next;
-	}
-	*p = target->next;
+void* worst_fit(size_t size){
+
 }
 
-void* halloc(size_t sz){
-	void* m_ptr = mmap(NULL, sz, PROT_NONE, MAP_SHARED, 0, 8);
-	if (m_ptr == MAP_FAILED){
-		printf("mmap failed to map %ld bytes\n", sz);
-	}else{
-		printf("Successfully mapped %ld bytes\n", sz);
+void* mmalloc(size_t size){
+	FreeBlock *block;
+	//struct Anode *allocatedBlock;
+	if (size <= 0){
+		return NULL;
 	}
-
+	if(!HEAD){ // First time allocating need to get entire block
+		block = mmap(NULL, size + BLOCK_H_SIZE, PROT_READ|PROT_WRITE,
+						MAP_ANON|MAP_PRIVATE, -1, 0);
+		if(!block){
+			printf("mmap failed to allocate inital free block\n");
+			return NULL;
+		}
+		block->magic = FMAGIC;
+		block->size = size + BLOCK_H_SIZE;
+		HEAD = block;
+	// +1 on return?
+		return(block);
+	}
+	printf("called malloc after allocating heap.\n");
+	return NULL;
+//	else{ // Block already allocated must divide and find slot
+//		struct FreeBlock *prev = HEAD;
+//		allocatedBlock = worst_fit(prev, size);
+//		if (!allocatedBlock){ // Can't find worst fit
+//			printf("OOM! STOP THE ALLOCATION!\n");
+//			return NULL;
+//		}else{ // Free block found that can fufill request
+//			allocatedBlock->size = SZ;
+//			allocatedBlock->magic = AMAGIC;
+//		}
+//	}
+//	// +1 on return?
+//	return(allocatedBlock);
 }
 
 //.......REQUIRED TEST CASES.......\\
@@ -50,18 +71,10 @@ void* halloc(size_t sz){
 // [ ] Heap alternates Free Allocated Free Allocated..
 // [ ] Uses worst-fit or next-fit
 int main(){
-	// heap var is a pointer to the first block in free list (head)
-	struct FreeBlock a = {NULL, .size=16, .magic=FMAGIC};
-	struct FreeBlock* a_ptr = &a;
-	struct FreeBlock b = {a_ptr, .size=16, .magic=FMAGIC};
-	struct FreeBlock* b_ptr = &b;
-	struct FreeBlock c = {b_ptr, .size=16, .magic=FMAGIC};
-	// must be 24 bytes 8 8 and minimun 8 from use
-	struct AllocNode z = {.size=24, .magic=AMAGIC};
-
-	printf("A: %llu\n", a.magic);
-	printf("B: %llu\n", b.next->magic);
-	printf("C: %llu\n", c.next->magic);
-	printf("Z: %llu\n", z.magic);
+	FreeBlock* heap = mmalloc(HEAP_SZ);
+	printf("block->size: %llu\n", heap->size);
+	printf("sz block header: %lu\n",BLOCK_H_SIZE);
+	printf("sz heap: %lu\n",sizeof(*heap));
+	printf("sz heap pointer: %lu\n",sizeof(heap));
 	return 0;
 }
