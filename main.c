@@ -24,19 +24,18 @@ typedef struct AllocBlock_t{
 void* HEAD = NULL;
 static FreeBlock* freeList = NULL;
 
-void* worst_fit(void** prev, size_t size){
-	FreeBlock *current = prev;
+//remove any items succesfully allocatred here from the freeList
+FreeBlock* worst_fit(size_t size){
+	FreeBlock *current;
 	FreeBlock *worstFit = NULL;
-	// find the largest freeBlock
-	printf("%p\n", current->next);
-	while (current->next != NULL){
-		printf("In while\n");
-		if (current->size >= size && // freeBlock size satifies request
-		   ((worstFit != NULL) && (current->size > worstFit->size))){
-			printf("Found a worst fitting block\n");
+	for(current = freeList; current; current = current->next){
+		printf("free list item of size %llu at %p\n", current->size, current);
+		if(current->size >= size && ( !worstFit || current->size >= worstFit->size)){
 			worstFit = current;
 		}
 	}
+	printf("worst fittitng block is of size %llu at %p\n", worstFit->size, worstFit);
+	return worstFit;
 }
 
 void* mmalloc(size_t size){
@@ -56,12 +55,13 @@ void* mmalloc(size_t size){
 		freeBlock->size = size + BLOCK_H_SIZE;
 		freeBlock->next = NULL;
 		HEAD = freeBlock;
+		freeList = freeBlock;
 		// +1 on return?
 		return(freeBlock);
 
 	}else{ // Block already allocated must divide and find slot
 		FreeBlock *prev = HEAD;
-		allocatedBlock = worst_fit(prev, size);
+		allocatedBlock = worst_fit(size);
 		if (!allocatedBlock){ // Can't find worst fit
 			printf("worst_fit failed to allocated.\n");
 			return NULL;
@@ -84,9 +84,11 @@ void* mmalloc(size_t size){
 // [ ] Uses worst-fit or next-fit
 int main(){
 	FreeBlock* heap = mmalloc(HEAP_SZ);
-	AllocBlock* a = mmalloc(1024);
-	printf("block->size: %llu\n", heap->size);
-	printf("sz block header: %lu\n",BLOCK_H_SIZE);
-	printf("sz heap: %lu\n",sizeof(*heap));
+	AllocBlock* a = mmalloc(4096);
+	AllocBlock* b = mmalloc(1024);
+	AllocBlock* c = mmalloc(1024);
+	//printf("block->size: %llu\n", heap->size);
+	//printf("sz block header: %lu\n",BLOCK_H_SIZE);
+	//printf("sz heap: %lu\n",sizeof(*heap));
 	return 0;
 }
