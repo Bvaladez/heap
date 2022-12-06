@@ -3,7 +3,8 @@
 #include <sys/mman.h>
 
 #define HEAP_SZ ((u64)4*1024)
-#define BLOCK_H_SIZE sizeof(FreeBlock)
+#define FBLOCK_H_SIZE sizeof(FreeBlock)
+#define ABLOCK_H_SIZE sizeof(AllocBlock)
 #define FMAGIC ((u64)0x0DACDACDACDACDAC)
 #define AMAGIC ((u64)0x0DEFDEFDEFDEFDEF)
 
@@ -21,56 +22,58 @@ typedef struct AllocBlock_t{
 	u64 magic;
 }AllocBlock;
 
-void* HEAD = NULL;
-static FreeBlock* freeList = NULL;
+static FreeBlock* HEAD = NULL;
+static FreeBlock* FREE_LIST = NULL;
 
 //remove any items succesfully allocatred here from the freeList
 FreeBlock* worst_fit(size_t size){
 	FreeBlock *current;
 	FreeBlock *worstFit = NULL;
-	for(current = freeList; current; current = current->next){
+	// Find the biggest block that can fit request 
+	for(current = FREE_LIST; current; current = current->next){
 		printf("free list item of size %llu at %p\n", current->size, current);
 		if(current->size >= size && ( !worstFit || current->size >= worstFit->size)){
 			worstFit = current;
 		}
 	}
 	printf("worst fittitng block is of size %llu at %p\n", worstFit->size, worstFit);
-	return worstFit;
+	// size worstFit to size requested return put remainder on freeList return worstfit
+	//(u64)HEAD += (u64)size + (u64)BLOCK_H_SIZE;
+	return ((u64)HEAD - (u64)size);
 }
 
 void* mmalloc(size_t size){
 	FreeBlock *freeBlock;
 	AllocBlock *allocatedBlock;
 	if (size <= 0){
+		printf("cannot malloc %lu bytes.\n", size);
 		return NULL;
 	}
 	if(!HEAD){ // First time allocating need to get entire block
-		freeBlock = mmap(NULL, size + BLOCK_H_SIZE, PROT_READ|PROT_WRITE,
+		HEAD = mmap(NULL, size + FBLOCK_H_SIZE, PROT_READ|PROT_WRITE,
 						 MAP_ANON|MAP_PRIVATE, -1, 0);
-		if(!freeBlock){
+		FREE_LIST = HEAD;
+		if(!HEAD){
 			printf("mmap failed to allocate inital free block\n");
 			return NULL;
+		}else{
+			HEAD->magic = FMAGIC;
+			HEAD->size = size + FBLOCK_H_SIZE;
+			HEAD->next = NULL;
 		}
-		freeBlock->magic = FMAGIC;
-		freeBlock->size = size + BLOCK_H_SIZE;
-		freeBlock->next = NULL;
-		HEAD = freeBlock;
-		freeList = freeBlock;
-		// +1 on return?
-		return(freeBlock);
-
-	}else{ // Block already allocated must divide and find slot
-		FreeBlock *prev = HEAD;
+		return(HEAD);
+	}else{ // FreeList already allocated find slot and split.
 		allocatedBlock = worst_fit(size);
 		if (!allocatedBlock){ // Can't find worst fit
 			printf("worst_fit failed to allocated.\n");
 			return NULL;
 		}else{ // FreeBlock found that can fufill request
-			allocatedBlock->size = size;
-			allocatedBlock->magic = AMAGIC;
+			printf("size added to head %lu\n", sizeof(allocatedBlock+1));
+			HEAD = (allocatedBlock + 1);
 		}
 	}
-	// +1 on return?
+	// requested memory allocation should return a pointer just 
+	// after the free block
 	return(allocatedBlock + 1);
 // TODO? -> put a label to collect all null returns
 }
@@ -81,14 +84,18 @@ void* mmalloc(size_t size){
 // [ ] Free-block list is in sorted order /
 //	   And contains all free blocks on the heap
 // [ ] Heap alternates Free Allocated Free Allocated..
-// [ ] Uses worst-fit or next-fit
+// [X] Uses worst-fit or next-fit
 int main(){
 	FreeBlock* heap = mmalloc(HEAP_SZ);
-	AllocBlock* a = mmalloc(4096);
-	AllocBlock* b = mmalloc(1024);
-	AllocBlock* c = mmalloc(1024);
+	printf("HEAD: %p\n", HEAD);
+	AllocBlock* a = mmalloc(100);
+	printf("HEAD: %p\n", HEAD);
+	AllocBlock* b = mmalloc(100);
+	printf("HEAD: %p\n", HEAD);
+	//AllocBlock* b = mmalloc(1024);
 	//printf("block->size: %llu\n", heap->size);
-	//printf("sz block header: %lu\n",BLOCK_H_SIZE);
+	//printf("sz block header: %lu\n",FBLOCK_H_SIZE);
 	//printf("sz heap: %lu\n",sizeof(*heap));
+	//printf("ALLOCBLOCK SZ: %lu\n", ABLOCK_H_SIZE);
 	return 0;
 }
