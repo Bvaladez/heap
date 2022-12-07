@@ -11,8 +11,6 @@
 #define FMAGIC ((u64)0x0DACDACDACDACDAC)
 #define AMAGIC ((u64)0x0DEFDEFDEFDEFDEF)
 
-#define JAH(ptr) (void *)(u64)ptr - sizeof(ABLOCK_H_SIZE)
-
 typedef unsigned long long u64;
 typedef struct FreeBlock_t FreeBlock;
 
@@ -53,13 +51,18 @@ AllocBlock* worst_fit(size_t size){
 //	 ptr--->|___________| 
 
 void ffree(void *ptr){
+	printf("Address of ptr: %llu\n", ptr);
+	AllocBlock* THead;
 	if (ptr == NULL){
 		return;
 	}
 	u64 AriPtr = (u64)ptr;
-	u64 Amagic = AriPtr + 8;
-	u64 size = AriPtr + 16;
-
+	THead = AriPtr - ABLOCK_H_SIZE; 
+	printf("size of ptr: %llu\n", THead->size);
+	printf("magic of ptr: %p\n", THead->magic);
+	if (THead->magic = AMAGIC){
+		printf("found an allocated block to free\n", THead->magic);
+	}
 }
 
 void* mmalloc(size_t size){
@@ -110,8 +113,6 @@ void* mmalloc(size_t size){
 
 		} 
 	}
-	// requested memory allocation should return a pointer just 
-	// after the free block
 }
 
 void dumpHeap(){
@@ -158,7 +159,11 @@ int main(){
 //	printf("FREE_LIST LLU: %llu\n", (u64)FREE_LIST);
 //	printf("FREE_LIST SIZE: %llu\n", (u64)FREE_LIST->size);
 
-	ffree(NULL);
+	ffree(a);
+	ffree(b);
+	ffree(c);
+	dumpHeap();
+	//freeing the heap cause a segFault.
 
 	return 0;
 }
