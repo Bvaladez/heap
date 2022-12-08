@@ -26,10 +26,30 @@ typedef struct AllocBlock_t{
 }AllocBlock;
 
 void* HEAD = NULL;
+static FreeBlock* PREV = NULL;
 static FreeBlock* FREE_LIST = NULL;
 
-//remove any items succesfully allocatred here from the freeList
-AllocBlock* worst_fit(size_t size){
+void 
+fixMem(){ // need to find all free block withought using next pointers 
+	FreeBlock* current;
+	for(current = FREE_LIST; current; current = current->next){
+		printf("free list item of size %llu at %p\n",current->size, current);
+	}
+}
+
+FreeBlock*
+findNextFreeBlock(void *ptr){
+	FreeBlock* current;
+	for(current = FREE_LIST; current; current = current->next){
+		if(current > ptr){
+			// Found freeBlock after the free'd pointer
+			return current;
+		}
+	}
+}
+
+AllocBlock* 
+worst_fit(size_t size){
 	FreeBlock *current;
 	FreeBlock *worstFit = NULL;
 	// Find the biggest block that can fit request 
@@ -39,35 +59,52 @@ AllocBlock* worst_fit(size_t size){
 		}
 	}
 	//printf("worst fittitng block is of size %llu at %p\n", worstFit->size, worstFit);
-	// returs Where ever the head was + the size
 	return (AllocBlock*)((u64)FREE_LIST + (u64)size);
+	// CHANGED HERE
+	//return (AllocBlock*)(worstFit);
 }
 
 //	  		_____________
-//			|   Size    | 
-//			|           | 8 bytes
+//			|           | 
+//			|   Size    | 8 bytes
 // 		 	+-----------+
 //			|   Magic   | 8 bytes
 //	 ptr--->|___________| 
 
-void ffree(void *ptr){
-	printf("Address of ptr: %llu\n", ptr);
-	AllocBlock* THead;
+void 
+ffree(void *ptr){
+	printf("Address of ptr: %p\n", ptr);
+	AllocBlock* Aheader;
+	FreeBlock* Fheader;
 	if (ptr == NULL){
 		return;
 	}
-	u64 AriPtr = (u64)ptr;
-	THead = AriPtr - ABLOCK_H_SIZE; 
-	printf("size of ptr: %llu\n", THead->size);
-	printf("magic of ptr: %p\n", THead->magic);
-	if (THead->magic = AMAGIC){
-		printf("found an allocated block to free\n", THead->magic);
-	}
+	Aheader = (AllocBlock*)ptr - 1; 
+	//Aheader = ariPtr - ABLOCK_H_SIZE; 
+	if (Aheader->magic = AMAGIC){
+		printf("found an allocated block to free\n");
+		Fheader = (u64)Aheader;
+		Fheader->size -= 8; // Lose 8 bytes 16 -> 24 byte header
+		Fheader->magic = FMAGIC;
+		Fheader->next = findNextFreeBlock(ptr);
+		// if we have a previous pointer make it point to new free block
+		if (PREV){
+			PREV->next = Fheader;	
+		}
+		//fixMem();
+		//should not adjust FREE_LIST if the free'd block is (above below)
+		if (Fheader < FREE_LIST){
+			printf("the free'd block was lower in mem.\n");
+			FREE_LIST = Fheader;
+		}
+		PREV = Fheader;
+	} 
 }
 
-void* mmalloc(size_t size){
-	FreeBlock *freeBlock;
-	AllocBlock *allocatedBlock;
+void* 
+mmalloc(size_t size){
+	FreeBlock* freeBlock;
+	AllocBlock* allocatedBlock = NULL;
 	if (size <= 0){
 		printf("cannot malloc %lu bytes.\n", size);
 		return NULL;
@@ -85,37 +122,42 @@ void* mmalloc(size_t size){
 			FREE_LIST->next = NULL;
 		}
 		return(FREE_LIST);
-	}else{ // FreeList already allocated find slot and split.
-		if (size > FREE_LIST->size){
+	}
+	
+	else{ // FreeList already allocated find slot and split.
+		if (size >= FREE_LIST->size){
 			printf("Not enough memory to allocate %lu byte(s)\n", size);
 			return NULL;
 			//exit(0);
 		}
 		allocatedBlock = worst_fit(size);
+		// CHANGED HERE
+		//freeBlock = worst_fit(size);
+
 		if (!allocatedBlock){ // Can't find worst fit
-			printf("worst_fit failed to allocated.\n");
+			printf("worst_fit failed to find suitable freeBlock.\n");
 			return NULL;
 		}else{ // FreeBlock found that can fufill request
 			//sets head to the end of the allocated section including the header
 			allocatedBlock->size = size + ABLOCK_H_SIZE;
 			allocatedBlock->magic = AMAGIC;
 			FreeBlock *prev = FREE_LIST; // Freelists state saved
-			FREE_LIST = (allocatedBlock + 1); //Freelist pointer moved
+			//FREE_LIST = (allocatedBlock + 1); //Freelist pointer moved
+			//CHANGED HERE
+			FREE_LIST = ((u64)allocatedBlock + (u64)allocatedBlock->size); //Freelist pointer moved
 			//set free_list state to prev's adjusting for allocated size
 			FREE_LIST->size = prev->size - allocatedBlock->size;
 			FREE_LIST->magic = FMAGIC;
 			FREE_LIST->next = NULL;
 			return(allocatedBlock + 1);
-			// This might hand use pointer just below the header
-			// for freeing we can subtract header size
-			// then grab next 8 bytes for size
-			//return(prev + 1);
-
 		} 
 	}
 }
 
-void dumpHeap(){
+
+
+void 
+dumpHeap(){
 	FreeBlock* current;
 	for(current = FREE_LIST; current; current = current->next){
 		printf("free list item of size %llu at %p\n",current->size, current);
@@ -123,47 +165,39 @@ void dumpHeap(){
 }
 
 //.......REQUIRED TEST CASES.......\\
-// [ ] Free blocks re-used  
+// [X] Free blocks re-used  
 // [ ] Free block are split and coalesced
 // [ ] Free-block list is in sorted order /
 //	   And contains all free blocks on the heap
 // [ ] Heap alternates Free Allocated Free Allocated..
 // [X] Uses worst-fit or next-fit
-int main(){
+int 
+main(){
 	FreeBlock* heap = mmalloc(HEAP_SZ);
-	printf("HEAP LLU: %llu\n", (u64)heap);
-	printf("FREE_LIST LLU: %llu\n", (u64)FREE_LIST);
+	printf("HEAP: %p\n", heap);
+	printf("FREE_LIST: %p\n", FREE_LIST);
 	printf("FREE_LIST SIZE: %llu\n", (u64)FREE_LIST->size);
 	AllocBlock* a = mmalloc(284);
-	printf("A LLU: %llu\n", (u64)a);
-	printf("FREE_LIST LLU: %llu\n", (u64)FREE_LIST);
+	printf("A: %p\n", a);
+	printf("FREE_LIST: %p\n", FREE_LIST);
 	printf("FREE_LIST SIZE: %llu\n", (u64)FREE_LIST->size);
 	AllocBlock* b = mmalloc(284);
-	printf("B LLU: %llu\n", (u64)b);
-	printf("FREE_LIST LLU: %llu\n", (u64)FREE_LIST);
+	printf("B: %p\n", b);
+	printf("FREE_LIST: %p\n", FREE_LIST);
 	printf("FREE_LIST SIZE: %llu\n", (u64)FREE_LIST->size);
-	AllocBlock* c = mmalloc(384);
-	printf("C LLU: %llu\n", (u64)c);
-	printf("FREE_LIST LLU: %llu\n", (u64)FREE_LIST);
+	AllocBlock* c = mmalloc(383);
+	printf("C: %p\n", c);
+	printf("FREE_LIST: %p\n", FREE_LIST);
 	printf("FREE_LIST SIZE: %llu\n", (u64)FREE_LIST->size);
-//	AllocBlock* d = mmalloc(984);
-//	printf("D LLU: %llu\n", (u64)d);
-//	printf("FREE_LIST LLU: %llu\n", (u64)FREE_LIST);
-//	printf("FREE_LIST SIZE: %llu\n", (u64)FREE_LIST->size);
-//	AllocBlock* e = mmalloc(1984);
-//	printf("E LLU: %llu\n", (u64)e);
-//	printf("FREE_LIST LLU: %llu\n", (u64)FREE_LIST);
-//	printf("FREE_LIST SIZE: %llu\n", (u64)FREE_LIST->size);
-//	AllocBlock* f = mmalloc(756);
-//	printf("f LLU: %llu\n", (u64)f);
-//	printf("FREE_LIST LLU: %llu\n", (u64)FREE_LIST);
-//	printf("FREE_LIST SIZE: %llu\n", (u64)FREE_LIST->size);
 
+	printf("\n\n\n\n\n");
 	ffree(a);
 	ffree(b);
 	ffree(c);
 	dumpHeap();
-	//freeing the heap cause a segFault.
+
+	
+
 
 	return 0;
 }
