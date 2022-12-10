@@ -2,6 +2,8 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#pragma GCC diagnostic ignored "-Wint-conversion"
+
 #define HEAP_SZ (((u64)4*1024)) //mmap only hands out 4k chunks
 
 #define FBLOCK_H_SIZE sizeof(FreeBlock)
@@ -33,14 +35,29 @@ void *
 coalesce(){ 
 	FreeBlock* temp;
     temp = FREE_LIST;
+	if (FREE_BLOCKS == 2){
+		//printf("cmp %p and %p\n",(((char*)temp + (temp->size))), (char*)(temp->next));
+		if( ((char*)temp + (temp->size)) == (char*)(temp->next)){
+			temp->size += (temp->next)->size;
+			temp->next = NULL;
+			FREE_BLOCKS -= 1;
+			return temp;
+		}
+
+	}
 	while(temp->next != NULL  ){
 		if( ((char*)temp + (temp->size)) == (char*)(temp->next)){
-			printf("cmp %p and %p\n",(((char*)temp + (temp->size))), (char*)(temp->next));
+			//printf("cmp %p and %p\n",(((char*)temp + (temp->size))), (char*)(temp->next));
 			temp->size += (temp->next)->size;
 			temp->next = (temp->next)->next;
 			FREE_BLOCKS -= 1;
-			return temp;
+			void *ret = coalesce();
+			if (ret){
+				return ret;
+			}else{
+				return temp;
 			}
+		}
 			temp = temp->next;
 		}
 		return NULL;
@@ -53,7 +70,7 @@ findNextFreeBlock(void *ptr){
 	}else{
 		FreeBlock* current;
 		for(current = FREE_LIST; current; current = current->next){
-			if(current > ptr){
+			if(current > (FreeBlock*)ptr){
 				// Found freeBlock after the free'd pointer
 				return current;
 			}
@@ -90,7 +107,7 @@ ffree(void *ptr){
 	}
 	Aheader = (AllocBlock*)ptr - 1; 
 	if (Aheader->magic = AMAGIC){ // Switch allocated block to free block.
-		printf("found mem to free at --> %p\n", Aheader);
+		printf("freeing %llu at %p\n", Aheader->size ,Aheader);
 		Fheader = (u64)Aheader;
 		Fheader->magic = FMAGIC;
 		Fheader->next = findNextFreeBlock(ptr);
@@ -122,7 +139,7 @@ ffree(void *ptr){
 		FREE_BLOCKS += 1;
 		FreeBlock* pprev = coalesce();
 		if (!pprev){
-			printf("failed to coalesce\n");
+			//printf("failed to coalesce\n");
 			PREV = Fheader;
 		}else{
 			PREV = pprev;
@@ -139,7 +156,7 @@ mmalloc(size_t size){
 		return NULL;
 	}
 	if(!FREE_LIST){ // First time allocating need to get entire block
-		FREE_LIST = (AllocBlock*)mmap(NULL, size, PROT_READ|PROT_WRITE,
+		FREE_LIST = (FreeBlock*)mmap(NULL, size, PROT_READ|PROT_WRITE,
 						 MAP_ANON|MAP_PRIVATE, -1, 0);
 		HEAD = FREE_LIST;
 		if(!FREE_LIST){
@@ -198,22 +215,24 @@ dumpHeap(){
 
 int 
 main(){
-	printf("\n\n------ Alloc heap --------\n\n");
+	printf("\n\n------ Allocat heap --------\n\n");
 	FreeBlock* heap = mmalloc(HEAP_SZ);
 
 	printf("HEAP: %p\n", heap);
 	dumpHeap();
 
 	printf("\n\n------ Malloc mem --------\n\n");
-	int a_size = 284;
-	AllocBlock* a = mmalloc(a_size);
-	printf("A: %p --> malloc'd %ld\n", a, (a_size + ABLOCK_H_SIZE));
+	void* a = mmalloc(84);
+	AllocBlock* ap = (u64)a - ABLOCK_H_SIZE;
+	printf("A: %p --> malloc'd %llu\n", a, ap->size);
 	dumpHeap();
+
+
 	int b_size = 284;
 	AllocBlock* b = mmalloc(b_size);
 	printf("B: %p --> malloc'd %ld\n", b, (b_size + ABLOCK_H_SIZE));
 	dumpHeap();
-	int c_size = 384;
+	int c_size = 184;
 	AllocBlock* c = mmalloc(c_size);
 	printf("C: %p --> malloc'd %ld\n", c, (c_size + ABLOCK_H_SIZE));
 	dumpHeap();
@@ -227,11 +246,11 @@ main(){
 
 	printf("\n\n------ Freeing mem --------\n\n");
 	// FREEING HIDES ALL FREE MEMMORY
+	ffree(c);
+	dumpHeap();
 	ffree(a);
 	dumpHeap();
 	ffree(b);
-	dumpHeap();
-	ffree(c);
 	dumpHeap();
 //	ffree(d);
 //	dumpHeap();
