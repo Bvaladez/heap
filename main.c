@@ -29,6 +29,7 @@ typedef struct AllocBlock_t{
 void* HEAD = NULL;
 static FreeBlock* PREV = NULL;
 static FreeBlock* FREE_LIST = NULL;
+static FreeBlock* FREE_PTR = NULL;
 static int FREE_BLOCKS = 0;
 
 void *
@@ -43,9 +44,10 @@ coalesce(){
 			FREE_BLOCKS -= 1;
 			return temp;
 		}
+		return NULL;
 
 	}
-	while(temp->next != NULL  ){
+	while(temp->next != NULL){
 		if( ((char*)temp + (temp->size)) == (char*)(temp->next)){
 			//printf("cmp %p and %p\n",(((char*)temp + (temp->size))), (char*)(temp->next));
 			temp->size += (temp->next)->size;
@@ -79,7 +81,7 @@ findNextFreeBlock(void *ptr){
 	}
 }
 
-AllocBlock* 
+void * 
 worst_fit(size_t size){
 	FreeBlock *current;
 	FreeBlock *worstFit = NULL;
@@ -97,6 +99,33 @@ worst_fit(size_t size){
 // 		 	+-----------+
 //			|   Magic   | 8 bytes
 //	 ptr--->|___________| 
+void
+fix_above_below_F(FreeBlock* f){
+	FreeBlock* block_above = NULL;
+	FreeBlock* block_below = NULL;	
+	FreeBlock* tempPrev = FREE_LIST;
+	while(tempPrev < f && tempPrev){
+		block_above = tempPrev;
+		tempPrev = tempPrev->next;
+	}
+	block_below = tempPrev;
+	block_above->next = f;
+	f->next = block_below;
+}
+
+void
+fix_above_below_A(AllocBlock* a, FreeBlock* f){
+	FreeBlock* block_above = NULL;
+	FreeBlock* block_below = NULL;	
+	FreeBlock* tempPrev = FREE_LIST;
+	while(tempPrev < a && tempPrev){
+		block_above = tempPrev;
+		tempPrev = tempPrev->next;
+	}
+	block_below = tempPrev;
+	block_above->next = f;
+	f->next = block_below;
+}
 
 void 
 ffree(void *ptr){
@@ -107,7 +136,7 @@ ffree(void *ptr){
 	}
 	Aheader = (AllocBlock*)ptr - 1; 
 	if (Aheader->magic = AMAGIC){ // Switch allocated block to free block.
-		printf("freeing %llu at %p\n", Aheader->size ,Aheader);
+		printf("freeing %llu bytes at %p\n", Aheader->size ,Aheader);
 		Fheader = (u64)Aheader;
 		Fheader->magic = FMAGIC;
 		Fheader->next = findNextFreeBlock(ptr);
@@ -117,25 +146,34 @@ ffree(void *ptr){
 		}else if (Fheader < FREE_LIST){
 			Fheader->next = FREE_LIST;	
 			FREE_LIST = Fheader;
-		}else if (PREV && (PREV < Fheader)){ //Free'd mem in order
-			if(PREV->next && (PREV->next < Fheader)){ //Block bewtween FREE_LIST & Fheader
-				FreeBlock* block_above = NULL;
-				FreeBlock* block_below = NULL;	
-				FreeBlock* tempPrev = PREV->next;
-				while(tempPrev < Fheader && tempPrev){
-					block_above = tempPrev;
-					tempPrev = tempPrev->next;
-				}
-				block_below = tempPrev;
-				block_above->next = Fheader;
-				Fheader->next = block_below;
-			}else{
-				PREV->next = Fheader;	
-			}
-		}else if (PREV && (PREV > Fheader)){//Free'd mem out of order
-			Fheader->next = PREV;
-			FREE_LIST = Fheader;
+		}else{
+			fix_above_below_F(Fheader);
 		}
+
+//		else if (PREV && (PREV < Fheader)){ //Free'd mem in order
+//			printf(" this PREV && (PREV < Fheader)\n");
+//			if(PREV->next && (PREV->next < Fheader)){ //Block bewtween FREE_LIST & Fheader
+//				printf("PREV->next && (PREV->next < Fheader)\n");
+//				FreeBlock* block_above = NULL;
+//				FreeBlock* block_below = NULL;	
+//				FreeBlock* tempPrev = FREE_LIST;
+//				while(tempPrev < Fheader && tempPrev){
+//					block_above = tempPrev;
+//					tempPrev = tempPrev->next;
+//				}
+//				block_below = tempPrev;
+//				block_above->next = Fheader;
+//				Fheader->next = block_below;
+//			}else{
+//				printf("else");
+//				PREV->next = Fheader;	
+//			}
+//		}else if (PREV && (PREV > Fheader)){//Free'd mem out of order
+//			printf("PREV && (PREV > Fheader)\n");
+//			fix_above_below(Fheader);
+//			//Fheader->next = PREV;
+//			//FREE_LIST = Fheader;
+//		}
 		FREE_BLOCKS += 1;
 		FreeBlock* pprev = coalesce();
 		if (!pprev){
@@ -181,19 +219,50 @@ mmalloc(size_t size){
 			printf("worst_fit failed to find suitable freeBlock.\n");
 			return NULL;
 		}else{ // FreeBlock found that can fufill request
-			FreeBlock prevFreeList = *FREE_LIST;
-			Aheader->size = size + ABLOCK_H_SIZE;
-			Aheader->magic = AMAGIC;
-			FREE_LIST = (FreeBlock*)(((u64)Aheader) + (u64)Aheader->size);
-			FREE_LIST->size = prevFreeList.size - Aheader->size;
-			FREE_LIST->magic = FMAGIC;
-			FREE_LIST->next = NULL;
-			if (FREE_LIST->size <= 24){// Can't split 24 bytes give extra mem
-				int extraBytes = FREE_LIST->size;
-				printf("Extra bytes being alloc'd: bytes(%d)\n", extraBytes);
-				Aheader->size += extraBytes;
-				FREE_LIST = NULL;
-				FREE_BLOCKS -= 1;
+			// if free block is not allocated to we cant modify the free block
+			if( ((char*)Aheader) == (char*)(FREE_LIST)){
+				FreeBlock prevFreeList = *FREE_LIST;
+				Aheader->size = size + ABLOCK_H_SIZE;
+				Aheader->magic = AMAGIC;
+				FREE_LIST = (FreeBlock*)(((u64)Aheader) + (u64)Aheader->size);
+				FREE_LIST->size = prevFreeList.size - Aheader->size;
+				FREE_LIST->magic = FMAGIC;
+				FREE_LIST->next = prevFreeList.next;
+				if (FREE_LIST->size <= 24){// Can't split 24 bytes give extra mem
+					int extraBytes = FREE_LIST->size;
+					printf("Extra bytes being alloc'd: bytes(%d)\n", extraBytes);
+					Aheader->size += extraBytes;
+					FREE_LIST = NULL;
+					FREE_BLOCKS -= 1;
+				}
+
+			}else{
+				FreeBlock oldBlock = *(FreeBlock*)Aheader;
+				Aheader->size = size + ABLOCK_H_SIZE;
+				Aheader->magic = AMAGIC;
+				FreeBlock* newBlock = (FreeBlock*)(((u64)Aheader) + (u64)Aheader->size);
+				newBlock->size = oldBlock.size - Aheader->size;
+				newBlock->magic = FMAGIC;
+				newBlock->next = oldBlock.next;
+				FreeBlock* block_above = NULL;
+				FreeBlock* block_below = NULL;	
+				FreeBlock* tempPrev = FREE_LIST;
+				while(tempPrev < Aheader && tempPrev){
+					block_above = tempPrev;
+					tempPrev = tempPrev->next;
+				}
+				block_below = tempPrev;
+				block_above->next = newBlock;
+				newBlock->next = block_below;
+				if (newBlock->size <= 24){// Can't split 24 bytes give extra mem
+					int extraBytes = newBlock->size;
+					printf("Extra bytes being alloc'd: bytes(%d)\n", extraBytes);
+					Aheader->size += extraBytes;
+					FREE_BLOCKS -= 1;
+				}
+
+
+	
 			}
 			return(Aheader + 1);
 		} 
@@ -202,6 +271,50 @@ mmalloc(size_t size){
 
 void 
 dumpHeap(){
+	//if( ((char*)temp + (temp->size)) == (char*)(temp->next)){
+	void* current = HEAD;
+	FreeBlock* fHeader = NULL;
+	AllocBlock* aHeader = NULL;
+	FREE_PTR = FREE_LIST;
+	u64 blockSize;
+	if( ((char*)current) == (char*)(FREE_LIST)){
+		fHeader = (FreeBlock*)current;
+		blockSize = fHeader->size;
+		printf("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n");
+		printf("┃Free %p size %4llu  ┃\n", fHeader, fHeader->size);
+		printf("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n");
+		//printf("free block found at %p of size %llu\n", fHeader, fHeader->size);
+		FREE_PTR = FREE_PTR->next;
+	
+	}else{
+		aHeader = (AllocBlock*)current;
+		blockSize = aHeader->size;
+		printf("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n");
+		printf("┃Aloc %p size %4llu  ┃\n", aHeader, aHeader->size);
+		printf("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n");
+	}
+	for (current = current + blockSize; current < HEAD + HEAP_SZ; current += blockSize){
+		if( ((char*)current) != (char*)(FREE_PTR)){
+			aHeader = (AllocBlock*)current;
+			blockSize = aHeader->size;
+			printf("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n");
+			printf("┃Aloc %p size %4llu  ┃\n", aHeader, aHeader->size);
+			printf("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n");
+		}else{
+			fHeader = (FreeBlock*)current;
+			blockSize = fHeader->size;
+			printf("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n");
+			printf("┃Free %p size %4llu  ┃\n", fHeader, fHeader->size);
+			printf("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n");
+	
+			FREE_PTR = FREE_PTR->next;
+		}
+	}
+	printf("\n");
+}
+
+void 
+walkFree(){
 	FreeBlock* current;
 	int found = 0;
 	for(current = FREE_LIST; current; current = current->next){
@@ -213,53 +326,94 @@ dumpHeap(){
 	}
 }
 
+
+
 int 
 main(){
-	printf("\n\n------ Allocat heap --------\n\n");
+	printf("------- Allocating 4k for heap -------\n\n");
 	FreeBlock* heap = mmalloc(HEAP_SZ);
-
 	printf("HEAP: %p\n", heap);
 	dumpHeap();
 
-	printf("\n\n------ Malloc mem --------\n\n");
-	void* a = mmalloc(84);
+	printf("------ Malloc blocks A-E ------\n");
+	//printf("After mallocing these 5 blocks memory should be\n");
+	//printf("5 allocated blocks followed by 1 free block.\n\n");
+
+	void* a = mmalloc(884);
 	AllocBlock* ap = (u64)a - ABLOCK_H_SIZE;
 	printf("A: %p --> malloc'd %llu\n", a, ap->size);
+
+	AllocBlock* b = mmalloc(284);
+	AllocBlock* bp = (u64)b - ABLOCK_H_SIZE;
+	printf("B: %p --> malloc'd %llu\n", b, bp->size);
+
+	AllocBlock* c = mmalloc(984);
+	AllocBlock* cp = (u64)c - ABLOCK_H_SIZE;
+	printf("C: %p --> malloc'd %llu\n", c, cp->size);
+
+	AllocBlock* d = mmalloc(484);
+	AllocBlock* dp = (u64)d - ABLOCK_H_SIZE;
+	printf("D: %p --> malloc'd %llu\n", d, dp->size);
+
+	AllocBlock* e = mmalloc(684);
+	AllocBlock* ep = (u64)e - ABLOCK_H_SIZE;
+	printf("E: %p --> malloc'd %llu\n", e, ep->size);
+
 	dumpHeap();
-
-
-	int b_size = 284;
-	AllocBlock* b = mmalloc(b_size);
-	printf("B: %p --> malloc'd %ld\n", b, (b_size + ABLOCK_H_SIZE));
-	dumpHeap();
-	int c_size = 184;
-	AllocBlock* c = mmalloc(c_size);
-	printf("C: %p --> malloc'd %ld\n", c, (c_size + ABLOCK_H_SIZE));
-	dumpHeap();
-//	int d_size = 484;
-//	AllocBlock* d = mmalloc(d_size);
-//	printf("D: %p --> malloc'd %ld\n", d, (d_size + ABLOCK_H_SIZE));
-//	dumpHeap();
-
-	//printf("FREE_LIST: %p\n", FREE_LIST);
-	//printf("FREE_LIST SIZE: %llu\n", (u64)FREE_LIST->size);
-
-	printf("\n\n------ Freeing mem --------\n\n");
-	// FREEING HIDES ALL FREE MEMMORY
+	
+	printf("freeing C of size %llu\n", cp->size);
 	ffree(c);
-	dumpHeap();
-	ffree(a);
-	dumpHeap();
-	ffree(b);
-	dumpHeap();
-//	ffree(d);
-//	dumpHeap();
 
-//	printf("\n\n------ Malloc mem --------\n\n");
-//	int e_size =284;
-//	AllocBlock* e = mmalloc(e_size);
-//	printf("e: %p --> malloc'd %ld\n", e, (e_size + ABLOCK_H_SIZE));
-//	dumpHeap();
+	dumpHeap();
+
+	printf("freeing B of size %llu\n", bp->size);
+	printf("After this free B and C will coalesce \nto form a free block of size %llu\n", cp->size + bp->size);
+	ffree(b);
+
+	dumpHeap();
+ 
+	printf("Because im using worst fit doing a \nmalloc for F will find the free block \nof size 1300 and split it \n");
+
+	AllocBlock* f = mmalloc(684);
+	AllocBlock* fp = (u64)f - ABLOCK_H_SIZE;
+	printf("F: %p --> malloc'd %llu\n", f, fp->size);
+	dumpHeap();
+
+	printf("Again doing a malloc now will find the free block \nof size 696 because it is the worst fit.\n");
+
+	AllocBlock* g = mmalloc(84);
+	AllocBlock* gp = (u64)g - ABLOCK_H_SIZE;
+	printf("G: %p --> malloc'd %llu\n", g, gp->size);
+
+	dumpHeap();
+
+
+	printf("free A\n");
+	ffree(a);
+	
+	dumpHeap();
+
+
+
+	printf("free E\n");
+	ffree(e);
+	
+	dumpHeap();
+
+	printf("free D\n");
+	ffree(d);
+	
+	dumpHeap();
+
+
+
+	printf("free G\n");
+	ffree(g);
+	dumpHeap();
+
+	printf("free F\n");
+	ffree(f);
+	dumpHeap();
 
 	return 0;
 }
