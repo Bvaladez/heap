@@ -99,6 +99,7 @@ worst_fit(size_t size){
 // 		 	+-----------+
 //			|   Magic   | 8 bytes
 //	 ptr--->|___________| 
+
 void
 fix_above_below_F(FreeBlock* f){
 	FreeBlock* block_above = NULL;
@@ -219,8 +220,7 @@ mmalloc(size_t size){
 			printf("worst_fit failed to find suitable freeBlock.\n");
 			return NULL;
 		}else{ // FreeBlock found that can fufill request
-			// if free block is not allocated to we cant modify the free block
-			if( ((char*)Aheader) == (char*)(FREE_LIST)){
+			if( ((char*)Aheader) == (char*)(FREE_LIST)){ // The FREE_LIST IS BEING SPLIT
 				FreeBlock prevFreeList = *FREE_LIST;
 				Aheader->size = size + ABLOCK_H_SIZE;
 				Aheader->magic = AMAGIC;
@@ -236,7 +236,7 @@ mmalloc(size_t size){
 					FREE_BLOCKS -= 1;
 				}
 
-			}else{
+			}else{// The FREE_LIST is not the block being spit
 				FreeBlock oldBlock = *(FreeBlock*)Aheader;
 				Aheader->size = size + ABLOCK_H_SIZE;
 				Aheader->magic = AMAGIC;
@@ -260,9 +260,6 @@ mmalloc(size_t size){
 					Aheader->size += extraBytes;
 					FREE_BLOCKS -= 1;
 				}
-
-
-	
 			}
 			return(Aheader + 1);
 		} 
@@ -271,7 +268,6 @@ mmalloc(size_t size){
 
 void 
 dumpHeap(){
-	//if( ((char*)temp + (temp->size)) == (char*)(temp->next)){
 	void* current = HEAD;
 	FreeBlock* fHeader = NULL;
 	AllocBlock* aHeader = NULL;
@@ -326,8 +322,6 @@ walkFree(){
 	}
 }
 
-
-
 int 
 main(){
 	printf("------- Allocating 4k for heap -------\n\n");
@@ -336,9 +330,6 @@ main(){
 	dumpHeap();
 
 	printf("------ Malloc blocks A-E ------\n");
-	//printf("After mallocing these 5 blocks memory should be\n");
-	//printf("5 allocated blocks followed by 1 free block.\n\n");
-
 	void* a = mmalloc(884);
 	AllocBlock* ap = (u64)a - ABLOCK_H_SIZE;
 	printf("A: %p --> malloc'd %llu\n", a, ap->size);
@@ -361,12 +352,12 @@ main(){
 
 	dumpHeap();
 	
-	printf("freeing C of size %llu\n", cp->size);
+	printf("------freeing C of size %llu------\n", cp->size);
 	ffree(c);
 
 	dumpHeap();
 
-	printf("freeing B of size %llu\n", bp->size);
+	printf("------freeing B of size %llu------\n", bp->size);
 	printf("After this free B and C will coalesce \nto form a free block of size %llu\n", cp->size + bp->size);
 	ffree(b);
 
@@ -388,30 +379,30 @@ main(){
 	dumpHeap();
 
 
-	printf("free A\n");
+	printf("------free A-------\n");
 	ffree(a);
 	
 	dumpHeap();
 
 
 
-	printf("free E\n");
+	printf("------free E------\n");
 	ffree(e);
 	
 	dumpHeap();
 
-	printf("free D\n");
+	printf("------free D------\n");
 	ffree(d);
 	
 	dumpHeap();
 
 
 
-	printf("free G\n");
+	printf("------free G------\n");
 	ffree(g);
 	dumpHeap();
 
-	printf("free F\n");
+	printf("------free F------\n");
 	ffree(f);
 	dumpHeap();
 
